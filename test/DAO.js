@@ -124,7 +124,7 @@ describe("DAO", () => {
 
 			it("updates vote count", async () => {
 				const proposal = await dao.proposals(1);
-				expect(proposal.votes).to.eq(tokens(200000));
+				await expect(proposal.votes).to.be.eq(tokens(200000));
 			});
 
 			it("emits vote event", async () => {
@@ -139,11 +139,91 @@ describe("DAO", () => {
 
 			it("reject double voting", async () => {
 				transaction = await dao.connect(investor1).vote(1);
-				await transaction.wait();
+				result = await transaction.wait();
 
 				await expect(dao.connect(investor1).vote(1)).to.be.reverted;
 			});
 
+			//it("checks for quorum", async () => {});
+		});
+	});
+
+	describe("Governance", () => {
+		let transaction, result;
+
+		describe("Success", () => {
+			beforeEach(async () => {
+				//Create proposal
+				transaction = await dao.connect(investor1).createProposal("First Proposal", ether(100), recipient.address);
+				result = await transaction.wait();
+
+				//Vote
+				transaction = await dao.connect(investor1).vote(1);
+				result = await transaction.wait();
+
+				transaction = await dao.connect(investor2).vote(1);
+				result = await transaction.wait();
+
+				transaction = await dao.connect(investor3).vote(1);
+				result = await transaction.wait();
+
+				//Finalize Proposal
+				transaction = await dao.connect(investor1).finalizeProposal(1);
+				result = await transaction.wait();
+			});
+
+			it("transfer funds to recipient", async () => {
+				expect(await ethers.provider.getBalance(recipient.address)).to.equal(tokens(10100));
+			});
+
+			it("updates the proposal to be finalized", async () => {
+				const proposal = await dao.proposals(1);
+				expect(proposal.finalized).to.eq(true);
+			});
+
+			it("emits a Finalize event", async () => {
+				await expect(transaction).to.emit(dao, "Finalize").withArgs(1);
+			});
+		});
+
+		describe("Failure", () => {
+			beforeEach(async () => {
+				//Create proposal
+				transaction = await dao.connect(investor1).createProposal("First Proposal", ether(100), recipient.address);
+				result = await transaction.wait();
+
+				//Vote
+				transaction = await dao.connect(investor1).vote(1);
+				result = await transaction.wait();
+
+				transaction = await dao.connect(investor2).vote(1);
+				result = await transaction.wait();
+			});
+
+			it("rejects finalization if not enough votes", async () => {
+				await expect(dao.connect(investor1).finalizeProposal(1)).to.be.reverted;
+			});
+
+			it("rejects Finialization from a non-investor", async () => {
+				transaction = await dao.connect(investor3).vote(1);
+				result = await transaction.wait();
+
+				await expect(dao.connect(user).finalizeProposal(1)).to.be.revertedWith("Must be token holder");
+			});
+
+			it("rejects proposal if already finalized", async () => {
+				transaction = await dao.connect(investor3).vote(1);
+				result = await transaction.wait();
+
+				//Finalize Proposal
+				transaction = await dao.connect(investor1).finalizeProposal(1);
+				result = await transaction.wait();
+
+				//try to finalize again
+				await expect(dao.connect(investor1).finalizeProposal(1)).to.be.reverted;
+			});
+
+			it("rejects finalization if not enough votes", async () => {});
 			//it("checks for quorum", async () => {});
 		});
 	});
